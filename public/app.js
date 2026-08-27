@@ -36,7 +36,7 @@ async function streamAI(body, onDelta, onDone, onError) {
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (config?.adminToken) headers['X-Admin-Token'] = config.adminToken;
-    const res = await fetch('/api/ai', { method: 'POST', headers, body: JSON.stringify({ ...body, stream: true }), signal: ctrl.signal });
+    const res = await fetch('api/ai', { method: 'POST', headers, body: JSON.stringify({ ...body, stream: true }), signal: ctrl.signal });
     if (!res.ok || !res.body) { let e = ''; try { e = (await res.json()).error || '' } catch {} onError(e || ('请求失败 ' + res.status)); return; }
     const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
@@ -106,7 +106,7 @@ function fillSettings() { if (!config) return; $('#cfg-baseurl').value = config.
 let saveTimer = null;
 function saveStore(silent) {
   const el = $('#save-state'); if (el) { el.textContent = '保存中…'; el.className = 'save-state saving'; }
-  Promise.all(['worldbook', 'characters', 'plot', 'chapters'].map(f => api('POST', '/api/store', { file: f + '.json', data: store[f] }).catch(() => null))).then(() => {
+  Promise.all(['worldbook', 'characters', 'plot', 'chapters'].map(f => api('POST', 'api/store', { file: f + '.json', data: store[f] }).catch(() => null))).then(() => {
     if (el) { el.textContent = '已保存 ✓'; el.className = 'save-state ok'; }
     if (!silent) toast('已保存');
   });
@@ -153,7 +153,7 @@ async function generateAll() {
     const o = outlines[k]; setStatus(`正在生成第 ${o.no} 章《${o.title}》…（${k + 1}/${outlines.length}）`);
     try {
       const body = { task: 'generate', worldbook: store.worldbook.items, characters: store.characters.items, mainline: store.plot.mainline, outline: o, ...genParams() };
-      const res = await api('POST', '/api/ai', body);
+      const res = await api('POST', 'api/ai', body);
       if (!res.ok) { setStatus('第' + o.no + '章生成失败：' + res.error + '（已跳过，稍后重试）', 'err'); skipped++; continue; }
       let item = store.chapters.items.find(c => c.outlineId === o.id);
       if (item) { item.content = res.text; item.updatedAt = today(); } else store.chapters.items.push({ id: uid(), outlineId: o.id, no: o.no, title: o.title, content: res.text, updatedAt: today() });
@@ -177,11 +177,11 @@ function exportChapters(fmt) {
 /* ------------------------------------------------- settings */
 async function saveSettings() {
   config = { baseUrl: $('#cfg-baseurl').value.trim(), model: $('#cfg-model').value.trim(), apiKey: $('#cfg-key').value.trim(), adminToken: $('#cfg-admin').value.trim(), temperature: parseFloat($('#cfg-temp').value) || 0.8, maxTokens: parseInt($('#cfg-maxtokens').value) || 3000, targetWords: parseInt($('#cfg-targetwords').value) || 2000, style: $('#cfg-style').value.trim() };
-  await api('POST', '/api/config', config); toast('设置已保存');
+  await api('POST', 'api/config', config); toast('设置已保存');
 }
 async function testConnection() {
   const box = $('#cfg-result'); box.textContent = '测试中…'; box.className = 'status';
-  try { const res = await api('POST', '/api/ai', { task: 'test' }); if (res.ok) { box.textContent = '连接成功：' + res.text; box.className = 'status ok'; } else { box.textContent = '连接失败：' + res.error; box.className = 'status err'; } }
+  try { const res = await api('POST', 'api/ai', { task: 'test' }); if (res.ok) { box.textContent = '连接成功：' + res.text; box.className = 'status ok'; } else { box.textContent = '连接失败：' + res.error; box.className = 'status err'; } }
   catch (e) { box.textContent = '请求失败：' + e.message; box.className = 'status err'; }
 }
 
@@ -233,7 +233,7 @@ function bindTabs() { document.querySelectorAll('nav button').forEach(btn => btn
 async function init() {
   bindTabs(); bindStatic(); bindDelegated('#wb-list', 'worldbook'); bindDelegated('#ch-list', 'characters'); bindDelegated('#pl-list', 'plot');
   try {
-    const storeRaw = await api('GET', '/api/store'); const configRaw = await api('GET', '/api/config');
+    const storeRaw = await api('GET', 'api/store'); const configRaw = await api('GET', 'api/config');
     const wb = storeRaw?.worldbook || storeRaw?.['worldbook.json'], ch = storeRaw?.characters || storeRaw?.['characters.json'], pl = storeRaw?.plot || storeRaw?.['plot.json'], cp = storeRaw?.chapters || storeRaw?.['chapters.json'];
     if (!wb || !ch || !pl || !cp) throw new Error('接口数据格式异常');
     store = { worldbook: { items: Array.isArray(wb.items) ? wb.items : [] }, characters: { items: Array.isArray(ch.items) ? ch.items : [] }, plot: { mainline: typeof pl.mainline === 'string' ? pl.mainline : '', chapters: Array.isArray(pl.chapters) ? pl.chapters : [] }, chapters: { items: Array.isArray(cp.items) ? cp.items : [] } };

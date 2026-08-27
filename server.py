@@ -459,7 +459,8 @@ def main():
         print('如果打不开，请先关闭旧的 python 窗口，再重新启动。')
         sys.exit(1)
     try:
-        server = ThreadingHTTPServer(('127.0.0.1', PORT), Handler)
+        host = os.environ.get('NOVEL_STUDIO_HOST', '127.0.0.1')
+        server = ThreadingHTTPServer((host, PORT), Handler)
     except OSError:
         print('端口 %d 被占用，可用环境变量 NOVEL_STUDIO_PORT 换一个端口。' % PORT)
         sys.exit(1)
