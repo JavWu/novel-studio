@@ -67,6 +67,13 @@ def write_json(path, obj):
 
 # ---------------- AI 提示词 ----------------
 
+def _no(x):
+    try:
+        return float(str(x).strip().rstrip('章　 '))
+    except Exception:
+        return 0
+
+
 def build_generate_messages(cfg, ctx):
     style = cfg.get('style', '')
     system = (
@@ -115,6 +122,18 @@ def build_generate_messages(cfg, ctx):
         outline_text += '\n写作备注：' + str(out['notes'])
     parts.append('【本章大纲】\n' + outline_text)
 
+    # 前情提要：注入上一章结尾，保证前后连贯
+    try:
+        chs = read_json(os.path.join(DATA_DIR, 'chapters.json'), EMPTY_STORES['chapters.json']).get('items', []) or []
+        cur = _no(out.get('no'))
+        prevs = sorted([c for c in chs if _no(c.get('no')) and _no(c.get('no')) < cur], key=lambda c: _no(c.get('no')))
+        if prevs:
+            ptext = str(prevs[-1].get('content', '')).strip()
+            if ptext:
+                parts.append('【前文结尾（上一章）】\n……' + ptext[-500:])
+    except Exception:
+        pass
+
     parts.append('请创作本章正文，目标字数约 ' + str(cfg.get('targetWords', 2000)) + ' 字。')
     return [
         {'role': 'system', 'content': system},
@@ -123,16 +142,35 @@ def build_generate_messages(cfg, ctx):
 
 
 def build_polish_messages(cfg, ctx):
+    inject = ''
+    try:
+        wb = read_json(os.path.join(DATA_DIR, 'worldbook.json'), EMPTY_STORES['worldbook.json']).get('items', []) or []
+        chars = read_json(os.path.join(DATA_DIR, 'characters.json'), EMPTY_STORES['characters.json']).get('items', []) or []
+        plot = read_json(os.path.join(DATA_DIR, 'plot.json'), EMPTY_STORES['plot.json'])
+        lines = []
+        if wb:
+            lines.append('【世界观】\n' + '\n'.join('■ ' + str(e.get('title', e.get('keyword', ''))) + '：' + str(e.get('content', '')) for e in wb if e.get('active', True)))
+        if chars:
+            lines.append('【角色】\n' + '\n'.join('■ ' + str(c.get('name', '')) + '：' + str(c.get('personality', '')) + '；说话风格：' + str(c.get('dialogueStyle', '')) for c in chars))
+        if plot.get('mainline'):
+            lines.append('【主线】\n' + str(plot['mainline']))
+        if lines:
+            inject = '<背景参考，勿复述，仅用于保持一致>\n' + '\n\n'.join(lines) + '\n\n'
+    except Exception:
+        pass
+
     if ctx.get('task') == 'continue':
         system = '你是一名资深中文网文作家，擅长自然续写。'
         user = (
+            inject +
             '以下是小说上一段内容：\n\n' + str(ctx.get('text', '')) +
-            '\n\n请自然地续写下一段，保持文风、视角与节奏一致，不要重复已有内容，'
+            '\n\n请自然地续写下一段，保持文风、视角、人物与节奏一致，不要重复已有内容，'
             '只输出续写部分。'
         )
     else:
         system = '你是一名资深中文网文编辑。'
         user = (
+            inject +
             '以下是小说章节草稿：\n\n' + str(ctx.get('text', '')) +
             '\n\n润色指令：' + str(ctx.get('instruction', '')) +
             '\n要求：保留情节、人物与伏笔不变，提升文笔、节奏与可读性；'
@@ -144,33 +182,90 @@ def build_polish_messages(cfg, ctx):
     ]
 
 
-def call_ai(cfg, messages):
+def ai_headers(cfg):
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + str(cfg.get('apiKey', '')),
+        'Accept-Encoding': 'identity',
+    }
+
+
+def _post_ai(cfg, payload):
     url = str(cfg['baseUrl']).rstrip('/') + '/chat/completions'
+    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=ai_headers(cfg))
+    return urllib.request.urlopen(req, timeout=300)
+
+
+def call_ai(cfg, messages):
+    """Non-streaming call, with a small retry on transient failures."""
     payload = {
         'model': cfg.get('model', 'gpt-4o-mini'),
         'messages': messages,
         'temperature': float(cfg.get('temperature', 0.8)),
         'max_tokens': int(cfg.get('maxTokens', 3000)),
     }
-    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + str(cfg.get('apiKey', '')),
-    })
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        data = json.loads(resp.read().decode('utf-8'))
-    return data['choices'][0]['message']['content']
+    last = None
+    for attempt in range(3):
+        try:
+            with _post_ai(cfg, payload) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+            return data['choices'][0]['message']['content']
+        except urllib.error.HTTPError as e:
+            last_error = e.read().decode('utf-8', 'ignore')[:400]
+            if e.code < 500 and e.code != 429:
+                raise
+            last = ('HTTP %s: %s' % (e.code, last_error))
+        except Exception as e:  # connection etc.
+            last = str(e)
+            if attempt == 2:
+                raise
+    raise RuntimeError(last)
+
+
+def stream_ai(cfg, messages):
+    """Streaming call — yields text deltas (OpenAI-compatible SSE)."""
+    payload = {
+        'model': cfg.get('model', 'gpt-4o-mini'),
+        'messages': messages,
+        'temperature': float(cfg.get('temperature', 0.8)),
+        'max_tokens': int(cfg.get('maxTokens', 3000)),
+        'stream': True,
+    }
+    resp = _post_ai(cfg, payload)
+    try:
+        for raw in resp:
+            line = raw.decode('utf-8', 'ignore')
+            if not line.startswith('data:'):
+                continue
+            data = line[5:].strip()
+            if data == '[DONE]':
+                break
+            try:
+                js = json.loads(data)
+                delta = js.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                if delta:
+                    yield delta
+            except Exception:
+                pass
+    finally:
+        resp.close()
+
+
+def build_messages_for_task(cfg, task, body):
+    if task == 'test':
+        return [{'role': 'user', 'content': '请只回复四个字：连接成功'}], 'test'
+    if task == 'generate':
+        return build_generate_messages(cfg, body), 'generate'
+    if task in ('polish', 'continue'):
+        return build_polish_messages(cfg, body), task
+    return None, None
 
 
 def handle_ai(body):
     cfg = read_json(CONFIG_FILE, DEFAULT_CONFIG)
     task = body.get('task', 'generate')
-    if task == 'test':
-        messages = [{'role': 'user', 'content': '请只回复四个字：连接成功'}]
-    elif task == 'generate':
-        messages = build_generate_messages(cfg, body)
-    elif task in ('polish', 'continue'):
-        messages = build_polish_messages(cfg, body)
-    else:
+    messages, _ = build_messages_for_task(cfg, task, body)
+    if messages is None:
         return {'ok': False, 'error': '未知任务类型'}
     try:
         return {'ok': True, 'text': call_ai(cfg, messages)}
@@ -188,6 +283,15 @@ def port_in_use(port):
         return True
     except OSError:
         return False
+
+
+# --- simple security (optional) ---
+# Set env NOVEL_STUDIO_TOKEN to require an admin token for /api/* endpoints.
+# /api/ai is rate-limited per IP (per minute) and capped per run to guard spend.
+AI_RATE_MIN = 8
+AI_DAILY_MAX = 200
+AI_BUCKET = {}
+AI_DAILY = [0]
 
 
 # ---------------- HTTP ----------------
@@ -214,12 +318,41 @@ class Handler(BaseHTTPRequestHandler):
     def _send_json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False))
 
+    def _authorized(self):
+        """If NOVEL_STUDIO_TOKEN is set, require X-Admin-Token to match."""
+        tok = os.environ.get('NOVEL_STUDIO_TOKEN', '').strip()
+        if not tok:
+            return True
+        given = self.headers.get('X-Admin-Token', '')
+        return given == tok
+
+    def _ai_allowed(self):
+        """Rate limit /api/ai: per-IP window + per-run cap."""
+        import time
+        now = time.time()
+        key = self.client_address[0]
+        bucket = AI_BUCKET.setdefault(key, [])
+        bucket[:] = [t for t in bucket if t > now - 60]
+        if len(bucket) >= AI_RATE_MIN:
+            return False, '请求过于频繁，请稍后再试'
+        if AI_DAILY[0] >= AI_DAILY_MAX:
+            return False, '今日 AI 配额已用完'
+        bucket.append(now)
+        AI_DAILY[0] += 1
+        return True, None
+
     def do_GET(self):
         path = self.path.split('?', 1)[0]
         if path == '/api/config':
+            if not self._authorized():
+                self._send_json({'ok': False, 'error': '未授权'}, 401)
+                return
             self._send_json(read_json(CONFIG_FILE, DEFAULT_CONFIG))
             return
         if path == '/api/store':
+            if not self._authorized():
+                self._send_json({'ok': False, 'error': '未授权'}, 401)
+                return
             out = {}
             for name in EMPTY_STORES:
                 out[name] = read_json(os.path.join(DATA_DIR, name), EMPTY_STORES[name])
@@ -252,12 +385,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = self.path.split('?', 1)[0]
         if path == '/api/config':
+            if not self._authorized():
+                self._send_json({'ok': False, 'error': '未授权'}, 401)
+                return
             merged = read_json(CONFIG_FILE, DEFAULT_CONFIG)
             merged.update(body)
             write_json(CONFIG_FILE, merged)
             self._send_json({'ok': True})
             return
         if path == '/api/store':
+            if not self._authorized():
+                self._send_json({'ok': False, 'error': '未授权'}, 401)
+                return
             fname = body.get('file', '')
             if fname not in EMPTY_STORES:
                 self._send_json({'ok': False, 'error': '不允许写入该文件'}, 400)
@@ -266,9 +405,50 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({'ok': True})
             return
         if path == '/api/ai':
+            if not self._authorized():
+                self._send_json({'ok': False, 'error': '未授权'}, 401)
+                return
+            ok, err = self._ai_allowed()
+            if not ok:
+                self._send_json({'ok': False, 'error': err}, 429)
+                return
+            if body.get('stream'):
+                self._stream_ai(body)
+                return
             self._send_json(handle_ai(body))
             return
         self._send_json({'ok': False, 'error': '未知接口'}, 404)
+
+    def _stream_ai(self, body):
+        cfg = read_json(CONFIG_FILE, DEFAULT_CONFIG)
+        task = body.get('task', 'generate')
+        try:
+            messages, _ = build_messages_for_task(cfg, task, body)
+        except Exception as e:
+            self._send_json({'ok': False, 'error': str(e)}, 400)
+            return
+        if not messages:
+            self._send_json({'ok': False, 'error': '未知任务类型'}, 400)
+            return
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        try:
+            for delta in stream_ai(cfg, messages):
+                self.wfile.write(('data: ' + json.dumps({'ok': True, 'delta': delta}, ensure_ascii=False) + '\n\n').encode('utf-8'))
+                self.wfile.flush()
+            self.wfile.write(b'data: {"ok":true,"done":true}\n\n')
+            self.wfile.flush()
+        except BrokenPipeError:
+            pass
+        except Exception as e:
+            try:
+                self.wfile.write(('data: ' + json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False) + '\n\n').encode('utf-8'))
+                self.wfile.flush()
+            except Exception:
+                pass
 
 
 def main():

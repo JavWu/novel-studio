@@ -78,7 +78,9 @@
           <h2>章节写作</h2>
           <div>
             <button id="batch-btn">批量生成全部章节</button>
-            <button id="exp-btn" class="ghost">导出全部章节</button>
+            <button id="exp-btn" class="ghost" title="导出 Markdown">导出 MD</button>
+            <button id="exp-txt" class="ghost" title="导出纯文本 TXT">导出 TXT</button>
+            <button id="exp-word" class="ghost" title="导出 Word(doc)">导出 Word</button>
             <button id="chp-save" class="primary">保存本章</button>
           </div>
         </div>
@@ -86,9 +88,26 @@
           <label>选择章节大纲：</label>
           <select id="outline-select"></select>
           <button id="gen-btn" class="primary">AI 生成本章</button>
+          <button id="stop-btn" class="danger" style="display:none">停止</button>
+          <button id="regen-btn" class="ghost" title="用当前参数重新生成">重新生成</button>
+        </div>
+        <div class="ed-bar">
+          <span id="wordcount">0 字</span>
+          <span class="save-state" id="save-state"></span>
+          <span class="spacer"></span>
+          <label class="toggle"><input type="checkbox" id="preview-toggle"> 预览</label>
         </div>
         <div id="gen-status" class="status"></div>
-        <textarea id="chapter-editor" rows="18" placeholder="生成的正文会出现在这里，你可以直接编辑，也可以一键润色。"></textarea>
+        <div class="ed-split">
+          <textarea id="chapter-editor" rows="18" placeholder="生成的正文会出现在这里，你可以直接编辑，也可以一键润色。"></textarea>
+          <div id="preview" class="preview" style="display:none"></div>
+        </div>
+        <div class="gen-params" id="gen-params">
+          <span class="gp-label">本次参数</span>
+          <label>温度<input id="gp-temp" type="number" step="0.1" min="0" max="1" value="0.8"></label>
+          <label>目标字数<input id="gp-words" type="number" step="100" min="200" value="2000"></label>
+          <label>最大Token<input id="gp-maxtok" type="number" step="100" min="500" value="3000"></label>
+        </div>
         <div class="polish-row">
           <span>润色：</span>
           <button data-polish="polish">提升文笔</button>
@@ -134,6 +153,8 @@
         </div>
         <label class="field-label">默认文风（生成章节时使用）</label>
         <textarea id="cfg-style" rows="3" placeholder="节奏明快、画面感强、对话生动"></textarea>
+        <label class="field-label">管理令牌 adminToken（可选，服务器开启鉴权时填）</label>
+        <input id="cfg-admin" type="password" placeholder="留空=不鉴权">
         <div id="cfg-result" class="status"></div>
       </div>
     </section>
