@@ -36,7 +36,7 @@
           </div>
         </div>
         <p class="hint">每条设定带一个“关键词”，生成章节时只有勾选启用的条目会进入提示词。关键词用于帮你识别条目，AI 也会参考它。</p>
-        <div id="wb-list"></div>
+        <div id="wb-list" class="cardgrid"></div>
       </div>
     </section>
 
@@ -51,7 +51,7 @@
           </div>
         </div>
         <p class="hint">把每个角色的背景、性格、说话风格写清楚，AI 生成的对话才会“像”这个人。</p>
-        <div id="ch-list"></div>
+        <div id="ch-list" class="cardgrid"></div>
       </div>
     </section>
 
@@ -73,50 +73,57 @@
 
     <!-- 章节写作 -->
     <section id="tab-chapters" class="tab" style="display:none">
-      <div class="panel">
-        <div class="panel-head">
-          <h2>章节写作</h2>
-          <div>
-            <button id="batch-btn">批量生成全部章节</button>
-            <button id="exp-btn" class="ghost" title="导出 Markdown">导出 MD</button>
-            <button id="exp-txt" class="ghost" title="导出纯文本 TXT">导出 TXT</button>
-            <button id="exp-word" class="ghost" title="导出 Word(doc)">导出 Word</button>
-            <button id="chp-save" class="primary">保存本章</button>
+      <div class="chapters-layout">
+        <aside class="ch-sidebar">
+          <div class="chs-head"><span>目录</span><button id="ch-go-plot" class="ghost">＋ 新建</button></div>
+          <div id="chs-list" class="ch-list"></div>
+        </aside>
+        <div class="panel ch-main">
+          <div class="panel-head">
+            <h2>章节写作</h2>
+            <div>
+              <button id="batch-btn">批量生成全部章节</button>
+              <button id="exp-btn" class="ghost" title="导出 Markdown">导出 MD</button>
+              <button id="exp-txt" class="ghost" title="导出纯文本 TXT">导出 TXT</button>
+              <button id="exp-word" class="ghost" title="导出 Word(doc)">导出 Word</button>
+              <button id="ver-btn" class="ghost" title="版本历史">版本</button>
+              <button id="chp-save" class="primary">保存本章</button>
+            </div>
           </div>
+          <div class="gen-row">
+            <select id="outline-select" style="display:none"></select>
+            <button id="gen-btn" class="primary">AI 生成本章</button>
+            <button id="stop-btn" class="danger" style="display:none">停止</button>
+            <button id="regen-btn" class="ghost" title="用当前参数重新生成">重新生成</button>
+          </div>
+          <div class="ed-bar">
+            <span id="wordcount">0 字</span>
+            <span class="save-state" id="save-state"></span>
+            <span class="spacer"></span>
+            <label class="toggle"><input type="checkbox" id="preview-toggle"> 预览</label>
+          </div>
+          <div id="gen-status" class="status"></div>
+          <div class="ed-split">
+            <textarea id="chapter-editor" rows="18" placeholder="生成的正文会出现在这里，你可以直接编辑，也可以一键润色。"></textarea>
+            <div id="preview" class="preview" style="display:none"></div>
+          </div>
+          <div class="gen-params" id="gen-params">
+            <span class="gp-label">本次参数</span>
+            <label>温度<input id="gp-temp" type="number" step="0.1" min="0" max="1" value="0.8"></label>
+            <label>目标字数<input id="gp-words" type="number" step="100" min="200" value="2000"></label>
+            <label>最大Token<input id="gp-maxtok" type="number" step="100" min="500" value="3000"></label>
+          </div>
+          <div class="polish-row">
+            <span>润色：</span>
+            <button data-polish="polish">提升文笔</button>
+            <button data-polish="expand">扩写细节</button>
+            <button data-polish="condense">精简紧凑</button>
+            <button data-polish="redialog">重写对话</button>
+            <button data-polish="continue">续写下一段</button>
+          </div>
+          <p class="hint">左侧点选章节 → 生成 → 手动改 → 润色 → 保存。「版本」可对比/回滚；「批量生成」失败自动跳过。</p>
+          <div id="version-panel" class="version-panel" style="display:none"></div>
         </div>
-        <div class="gen-row">
-          <label>选择章节大纲：</label>
-          <select id="outline-select"></select>
-          <button id="gen-btn" class="primary">AI 生成本章</button>
-          <button id="stop-btn" class="danger" style="display:none">停止</button>
-          <button id="regen-btn" class="ghost" title="用当前参数重新生成">重新生成</button>
-        </div>
-        <div class="ed-bar">
-          <span id="wordcount">0 字</span>
-          <span class="save-state" id="save-state"></span>
-          <span class="spacer"></span>
-          <label class="toggle"><input type="checkbox" id="preview-toggle"> 预览</label>
-        </div>
-        <div id="gen-status" class="status"></div>
-        <div class="ed-split">
-          <textarea id="chapter-editor" rows="18" placeholder="生成的正文会出现在这里，你可以直接编辑，也可以一键润色。"></textarea>
-          <div id="preview" class="preview" style="display:none"></div>
-        </div>
-        <div class="gen-params" id="gen-params">
-          <span class="gp-label">本次参数</span>
-          <label>温度<input id="gp-temp" type="number" step="0.1" min="0" max="1" value="0.8"></label>
-          <label>目标字数<input id="gp-words" type="number" step="100" min="200" value="2000"></label>
-          <label>最大Token<input id="gp-maxtok" type="number" step="100" min="500" value="3000"></label>
-        </div>
-        <div class="polish-row">
-          <span>润色：</span>
-          <button data-polish="polish">提升文笔</button>
-          <button data-polish="expand">扩写细节</button>
-          <button data-polish="condense">精简紧凑</button>
-          <button data-polish="redialog">重写对话</button>
-          <button data-polish="continue">续写下一段</button>
-        </div>
-        <p class="hint">建议流程：剧情页写好大纲 → 这里选大纲 → 生成 → 手动改 → 润色 → 保存本章。「批量生成」会按大纲顺序逐章生成并自动保存，中途失败会停下，已生成的不丢失。</p>
       </div>
     </section>
 

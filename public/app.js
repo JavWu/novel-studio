@@ -61,15 +61,43 @@ function curOutline() { const id = $('#outline-select').value; return store.plot
 function renderChapter() { const o = curOutline(); const item = store.chapters.items.find(c => c.outlineId === o?.id); $('#chapter-editor').value = item ? item.content : ''; updateWords(); }
 function updateWords() { const t = $('#chapter-editor').value; $('#wordcount').textContent = (t ? t.replace(/\s/g, '').length : 0) + ' 字'; }
 
+/* ---------- versions ---------- */
+function currentItem() { const o = curOutline(); return o ? store.chapters.items.find(c => c.outlineId === o.id) : null; }
+function pushVersion(item, label) { item.versions = item.versions || []; const last = item.versions[item.versions.length - 1]; if (last && last.content === item.content) return; item.versions.push({ content: item.content, ts: today(), label: label || '保存', words: (item.content || '').replace(/\s/g, '').length }); if (item.versions.length > 20) item.versions.splice(0, item.versions.length - 20); }
+function saveContent(label) { const o = curOutline(); const content = $('#chapter-editor').value; if (!o) return; let item = currentItem(); if (!item) { item = { id: uid(), outlineId: o.id, no: o.no, title: o.title, content, updatedAt: today(), versions: [] }; store.chapters.items.push(item); } else { item.content = content; item.updatedAt = today(); } pushVersion(item, label || '保存'); saveStore(true); renderChSidebar(); if ($('#version-panel').style.display !== 'none') renderVersionPanel(); }
+function snapshotCurrent(label) { const o = curOutline(); const content = $('#chapter-editor').value.trim(); if (!o || !content) return; let item = currentItem(); if (!item) { item = { id: uid(), outlineId: o.id, no: o.no, title: o.title, content, updatedAt: today(), versions: [] }; store.chapters.items.push(item); } item.versions = item.versions || []; const last = item.versions[item.versions.length - 1]; if (!(last && last.content === content)) { item.versions.push({ content, ts: today(), label: label || '保存', words: content.replace(/\s/g, '').length }); if (item.versions.length > 20) item.versions.splice(0, item.versions.length - 20); } }
+function renderVersionPanel() {
+  const item = currentItem(); const el = $('#version-panel'); if (!el) return;
+  const vp = (item && item.versions && item.versions.length) ? item.versions : [];
+  el.innerHTML = '<div class="vp-head">版本历史（载入=预览 / 对比=与当前并排 / 回滚=恢复并保存）</div>' + (vp.length ? '' : '<div class="vp-empty">暂无版本</div>');
+  vp.forEach((v, i) => {
+    const row = document.createElement('div'); row.className = 'vp-item';
+    row.innerHTML = `<span class="idx">v${i + 1}</span><span class="lbl">${esc(v.label)}</span><span class="ts">${new Date(v.ts).toLocaleString()}</span><span class="wc">${v.words || String(v.content.replace(/\s/g, '').length)}字</span><div class="acts"><button data-load="${i}">载入</button><button data-cmp="${i}">对比</button><button data-roll="${i}">回滚</button></div>`;
+    el.appendChild(row);
+  });
+  el.style.display = '';
+}
+
 /* ------------------------------------------------- rendering */
 function renderOutlineSelect() {
   const sel = $('#outline-select'); const prev = sel.value; sel.innerHTML = '';
   store.plot.chapters.forEach(c => { const opt = document.createElement('option'); opt.value = c.id; opt.textContent = '第' + c.no + '章 ' + c.title; sel.appendChild(opt); });
-  if (prev && store.plot.chapters.some(c => c.id === prev)) sel.value = prev;
-  renderChapter();
+  if (prev && store.plot.chapters.some(c => c.id === prev)) sel.value = prev; else sel.value = sel.options[0]?.value || '';
+  renderChapter(); renderChSidebar();
 }
-function renderWorldbook() { const list = $('#wb-list'); list.innerHTML = ''; store.worldbook.items.forEach((it, i) => { const div = document.createElement('div'); div.className = 'card'; div.innerHTML = `<div class="row"><input class="small" data-i="${i}" data-f="keyword" value="${esc(it.keyword)}" placeholder="关键词"><input data-i="${i}" data-f="title" value="${esc(it.title)}" placeholder="条目标题"><label><input type="checkbox" data-i="${i}" data-f="active" ${it.active ? 'checked' : ''}> 启用</label><button class="danger" data-del="${i}">删除</button></div><textarea data-i="${i}" data-f="content" rows="3" placeholder="设定内容……">${esc(it.content)}</textarea>`; list.appendChild(div); }); }
-function renderCharacters() { const list = $('#ch-list'); list.innerHTML = ''; store.characters.items.forEach((c, i) => { const div = document.createElement('div'); div.className = 'card'; div.innerHTML = `<div class="row"><input class="small" data-i="${i}" data-f="name" value="${esc(c.name)}" placeholder="姓名"><button class="danger" data-del="${i}">删除</button></div><div class="row"><input data-i="${i}" data-f="profile" value="${esc(c.profile)}" placeholder="身份背景"><input data-i="${i}" data-f="personality" value="${esc(c.personality)}" placeholder="性格"></div><div class="row"><input data-i="${i}" data-f="dialogueStyle" value="${esc(c.dialogueStyle)}" placeholder="说话风格"></div><textarea data-i="${i}" data-f="exampleDialogue" rows="2" placeholder="示例对话（可选，AI 会模仿）">${esc(c.exampleDialogue)}</textarea>`; list.appendChild(div); }); }
+function renderChSidebar() {
+  const el = $('#chs-list'); if (!el) return; el.innerHTML = ''; const cur = $('#outline-select').value;
+  store.plot.chapters.forEach(c => {
+    const has = store.chapters.items.some(x => x.outlineId === c.id);
+    const item = document.createElement('div'); item.className = 'ch-item' + (c.id === cur ? ' active' : '');
+    item.innerHTML = `<span class="no">第${c.no}章</span><span class="t">${esc(c.title)}</span>${has ? '<span class="ok">✓</span>' : ''}`;
+    item.onclick = () => { $('#outline-select').value = c.id; renderChapter(); renderChSidebar(); };
+    el.appendChild(item);
+  });
+  if (!store.plot.chapters.length) el.innerHTML = '<div class="ch-empty">暂无章节，去「剧情大纲」新建</div>';
+}
+function renderWorldbook() { const list = $('#wb-list'); list.innerHTML = ''; store.worldbook.items.forEach((it, i) => { const div = document.createElement('div'); div.className = 'card'; div.innerHTML = `<div class="card-head"><span class="ct-icon">◆</span><span class="ct-title">${esc(it.title || it.keyword || '未命名条目')}</span><span class="ct-tag">${esc(it.keyword)}</span><label class="ct-on"><input type="checkbox" data-i="${i}" data-f="active" ${it.active ? 'checked' : ''}> 启用</label></div><div class="row"><input class="small" data-i="${i}" data-f="keyword" value="${esc(it.keyword)}" placeholder="关键词"><input data-i="${i}" data-f="title" value="${esc(it.title)}" placeholder="条目标题"><button class="danger" data-del="${i}">删除</button></div><textarea data-i="${i}" data-f="content" rows="4" placeholder="设定内容……">${esc(it.content)}</textarea>`; list.appendChild(div); }); }
+function renderCharacters() { const list = $('#ch-list'); list.innerHTML = ''; store.characters.items.forEach((c, i) => { const div = document.createElement('div'); div.className = 'card'; div.innerHTML = `<div class="card-head"><span class="ct-icon">◉</span><span class="ct-title">${esc(c.name || '未命名角色')}</span><span class="ct-tag">${esc(c.personality || '')}</span><button class="danger ct-del" data-del="${i}">删除</button></div><div class="row"><input class="small" data-i="${i}" data-f="name" value="${esc(c.name)}" placeholder="姓名"><input data-i="${i}" data-f="profile" value="${esc(c.profile)}" placeholder="身份背景"></div><div class="row"><input data-i="${i}" data-f="personality" value="${esc(c.personality)}" placeholder="性格"><input data-i="${i}" data-f="dialogueStyle" value="${esc(c.dialogueStyle)}" placeholder="说话风格"></div><textarea data-i="${i}" data-f="exampleDialogue" rows="2" placeholder="示例对话（可选，AI 会模仿）">${esc(c.exampleDialogue)}</textarea>`; list.appendChild(div); }); }
 function renderPlot() { $('#pl-mainline').value = store.plot.mainline || ''; const list = $('#pl-list'); list.innerHTML = ''; store.plot.chapters.forEach((c, i) => { const div = document.createElement('div'); div.className = 'card'; div.innerHTML = `<div class="row"><input class="small" data-i="${i}" data-f="no" value="${esc(c.no)}" placeholder="章节号"><input data-i="${i}" data-f="title" value="${esc(c.title)}" placeholder="章节标题"><button class="danger" data-del="${i}">删除</button></div><textarea data-i="${i}" data-f="summary" rows="2" placeholder="本章概要：这章发生了什么">${esc(c.summary)}</textarea><textarea data-i="${i}" data-f="keyPoints" rows="2" placeholder="关键情节（每行一条）：悬念、冲突、反转……">${esc(c.keyPoints)}</textarea><textarea data-i="${i}" data-f="notes" rows="1" placeholder="写作备注（可选）：本章要埋的伏笔、氛围要求等">${esc(c.notes)}</textarea>`; list.appendChild(div); }); }
 function renderAll() { renderWorldbook(); renderCharacters(); renderPlot(); renderOutlineSelect(); fillSettings(); }
 function fillSettings() { if (!config) return; $('#cfg-baseurl').value = config.baseUrl || ''; $('#cfg-model').value = config.model || ''; $('#cfg-key').value = config.apiKey || ''; $('#cfg-temp').value = config.temperature ?? 0.8; $('#cfg-maxtokens').value = config.maxTokens ?? 3000; $('#cfg-targetwords').value = config.targetWords ?? 2000; $('#cfg-style').value = config.style || ''; $('#cfg-admin').value = config.adminToken || ''; }
@@ -84,27 +112,24 @@ function saveStore(silent) {
   });
 }
 function queueAutosave() { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveStore(true), 600); }
-function chapterDirty() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveChapter(true); saveStore(true); }, 600); }
-
-/* ------------------------------------------------- chapters */
-async function saveChapter(silent) {
-  const outline = curOutline(); const content = $('#chapter-editor').value.trim();
-  if (!outline) { if (!silent) toast('请先选择章节大纲', true); return; }
-  if (!content) { if (!silent) toast('编辑器里没有内容', true); return; }
-  let item = store.chapters.items.find(c => c.outlineId === outline.id);
-  if (item) { item.content = content; item.updatedAt = today(); } else store.chapters.items.push({ id: uid(), outlineId: outline.id, no: outline.no, title: outline.title, content, updatedAt: today() });
-  if (!silent) toast('本章已保存');
+function chapterDirty() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { persistContent(); }, 600); }
+function persistContent() { const o = curOutline(); const content = $('#chapter-editor').value; if (!o || !content) return; let item = currentItem(); if (!item) { item = { id: uid(), outlineId: o.id, no: o.no, title: o.title, content, updatedAt: today(), versions: [] }; store.chapters.items.push(item); } else { item.content = content; item.updatedAt = today(); } saveStore(true); renderChSidebar(); }
+function saveChapter(silent) {
+  if (!curOutline()) { if (!silent) toast('请先选择章节大纲', true); return; }
+  if (!$('#chapter-editor').value.trim()) { if (!silent) toast('编辑器里没有内容', true); return; }
+  saveContent('手动保存'); if (!silent) toast('本章已保存');
 }
 
 async function generateChapter(regen) {
   const outline = curOutline(); if (!outline) return toast('请先在“剧情大纲”页添加章节大纲', true);
   if (busy) return toast('正在生成中…', true);
   const btn = $('#gen-btn'); btn.disabled = true; setStatus('正在生成…（可点“停止”中断）'); $('#chp-save').disabled = true;
+  if ($('#chapter-editor').value.trim()) snapshotCurrent(regen ? '重生成前' : '生成前');
   const body = { task: 'generate', worldbook: store.worldbook.items, characters: store.characters.items, mainline: store.plot.mainline, outline, ...genParams() };
   if (regen) $('#chapter-editor').value = '';
   let out = '';
   await streamAI(body, d => { out += d; $('#chapter-editor').value = out; updateWords(); },
-    () => { setStatus('生成完成，可以直接修改或润色。', 'ok'); btn.disabled = false; $('#chp-save').disabled = false; chapterDirty(); },
+    () => { setStatus('生成完成，可以直接修改或润色。', 'ok'); btn.disabled = false; $('#chp-save').disabled = false; saveContent('AI 生成'); },
     (e) => { setStatus('生成失败：' + e, 'err'); btn.disabled = false; $('#chp-save').disabled = false; });
 }
 
@@ -117,7 +142,7 @@ async function polish(action) {
   if (action === 'continue') $('#chapter-editor').value = text + '\n\n';
   let out = '';
   await streamAI(body, d => { out += d; $('#chapter-editor').value = $('#chapter-editor').value + d; updateWords(); },
-    () => { setStatus(label + '完成。', 'ok'); chapterDirty(); },
+    () => { setStatus(label + '完成。', 'ok'); saveContent(label); },
     (e) => { setStatus(label + '失败：' + e, 'err'); });
 }
 
@@ -190,6 +215,16 @@ function bindStatic() {
   $('#exp-btn').onclick = () => exportChapters('md'); $('#exp-txt').onclick = () => exportChapters('txt'); $('#exp-word').onclick = () => exportChapters('word');
   document.querySelectorAll('[data-polish]').forEach(btn => btn.onclick = () => polish(btn.dataset.polish));
   $('#cfg-save').onclick = saveSettings; $('#cfg-test').onclick = testConnection; $('#wb-sample').onclick = loadSample;
+  $('#ver-btn').onclick = () => { const p = $('#version-panel'); if (p.style.display === 'none' || !p.style.display) renderVersionPanel(); else p.style.display = 'none'; };
+  $('#ch-go-plot').onclick = () => { const b = document.querySelector('nav button[data-tab="plot"]'); if (b) b.click(); };
+  $('#version-panel').addEventListener('click', e => {
+    const b = e.target.closest('[data-load],[data-cmp],[data-roll]'); if (!b) return;
+    const item = currentItem(); const i = parseInt(b.dataset.load ?? b.dataset.cmp ?? b.dataset.roll, 10);
+    if (!item || !item.versions[i]) return; const v = item.versions[i];
+    if (b.dataset.load !== undefined) { $('#chapter-editor').value = v.content; updateWords(); toast('已载入 v' + (i + 1) + '，确认后点“保存本章”'); }
+    else if (b.dataset.cmp !== undefined) { $('#preview').innerHTML = mdToHtml(v.content); $('#preview-toggle').checked = true; $('#preview').style.display = ''; $('#chapter-editor').style.display = 'none'; toast('对比中：预览=旧版本 v' + (i + 1) + '，关闭“预览”可回到当前'); }
+    else if (b.dataset.roll !== undefined) { $('#chapter-editor').value = v.content; updateWords(); saveContent('回滚'); toast('已回滚到 v' + (i + 1)); }
+  });
   $('#preview-toggle').addEventListener('change', e => { const p = $('#preview'); if (e.target.checked) { p.innerHTML = mdToHtml($('#chapter-editor').value); p.style.display = ''; $('#chapter-editor').style.display = 'none'; } else { p.style.display = 'none'; $('#chapter-editor').style.display = ''; } });
   $('#chapter-editor').addEventListener('input', () => { updateWords(); if ($('#preview-toggle').checked) $('#preview').innerHTML = mdToHtml($('#chapter-editor').value); });
 }
