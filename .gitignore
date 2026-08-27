@@ -1,0 +1,6 @@
+# runtime state / secrets (data/config.json holds the API key; never commit)
+data/
+server.log
+__pycache__/
+*.pyc
+.venv/

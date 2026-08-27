@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>网文工坊 · AI 章节生成器</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>网文工坊</h1>
+      <span class="sub">AI 章节生成 · 本地运行 · 你的设定你做主</span>
+    </div>
+    <div class="conn" id="conn-status">加载中…</div>
+  </header>
+
+  <nav>
+    <button class="active" data-tab="worldbook">世界书</button>
+    <button data-tab="characters">主要角色</button>
+    <button data-tab="plot">剧情大纲</button>
+    <button data-tab="chapters">章节写作</button>
+    <button data-tab="settings">AI 设置</button>
+  </nav>
+
+  <main>
+    <!-- 世界书 -->
+    <section id="tab-worldbook" class="tab">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>世界书（世界观设定）</h2>
+          <div>
+            <button id="wb-add">+ 添加条目</button>
+            <button id="wb-sample" class="ghost">载入示例</button>
+            <button id="wb-save" class="primary">保存世界书</button>
+          </div>
+        </div>
+        <p class="hint">每条设定带一个“关键词”，生成章节时只有勾选启用的条目会进入提示词。关键词用于帮你识别条目，AI 也会参考它。</p>
+        <div id="wb-list"></div>
+      </div>
+    </section>
+
+    <!-- 角色 -->
+    <section id="tab-characters" class="tab" style="display:none">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>主要角色</h2>
+          <div>
+            <button id="ch-add">+ 添加角色</button>
+            <button id="ch-save" class="primary">保存角色</button>
+          </div>
+        </div>
+        <p class="hint">把每个角色的背景、性格、说话风格写清楚，AI 生成的对话才会“像”这个人。</p>
+        <div id="ch-list"></div>
+      </div>
+    </section>
+
+    <!-- 剧情 -->
+    <section id="tab-plot" class="tab" style="display:none">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>剧情大纲</h2>
+          <div>
+            <button id="pl-add">+ 添加章节大纲</button>
+            <button id="pl-save" class="primary">保存剧情</button>
+          </div>
+        </div>
+        <label class="field-label">故事主线 / 剧情走向（整本书的骨架，AI 生成每一章都会参考）</label>
+        <textarea id="pl-mainline" rows="6" placeholder="例如：主角从基层仓库工程师做起，一步步揭开公司数字孪生系统背后的秘密……"></textarea>
+        <div id="pl-list"></div>
+      </div>
+    </section>
+
+    <!-- 章节写作 -->
+    <section id="tab-chapters" class="tab" style="display:none">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>章节写作</h2>
+          <div>
+            <button id="batch-btn">批量生成全部章节</button>
+            <button id="exp-btn" class="ghost">导出全部章节</button>
+            <button id="chp-save" class="primary">保存本章</button>
+          </div>
+        </div>
+        <div class="gen-row">
+          <label>选择章节大纲：</label>
+          <select id="outline-select"></select>
+          <button id="gen-btn" class="primary">AI 生成本章</button>
+        </div>
+        <div id="gen-status" class="status"></div>
+        <textarea id="chapter-editor" rows="18" placeholder="生成的正文会出现在这里，你可以直接编辑，也可以一键润色。"></textarea>
+        <div class="polish-row">
+          <span>润色：</span>
+          <button data-polish="polish">提升文笔</button>
+          <button data-polish="expand">扩写细节</button>
+          <button data-polish="condense">精简紧凑</button>
+          <button data-polish="redialog">重写对话</button>
+          <button data-polish="continue">续写下一段</button>
+        </div>
+        <p class="hint">建议流程：剧情页写好大纲 → 这里选大纲 → 生成 → 手动改 → 润色 → 保存本章。「批量生成」会按大纲顺序逐章生成并自动保存，中途失败会停下，已生成的不丢失。</p>
+      </div>
+    </section>
+
+    <!-- 设置 -->
+    <section id="tab-settings" class="tab" style="display:none">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>AI 设置</h2>
+          <div>
+            <button id="cfg-test">测试连接</button>
+            <button id="cfg-save" class="primary">保存设置</button>
+          </div>
+        </div>
+        <p class="hint">支持所有 OpenAI 兼容接口：OpenAI、DeepSeek、Kimi（月之暗面）、通义千问、豆包，以及本地 Ollama。API Key 只保存在你自己电脑的 data/config.json 里。</p>
+        <div class="form-grid">
+          <label>接口地址 baseUrl
+            <input id="cfg-baseurl" placeholder="https://api.openai.com/v1">
+          </label>
+          <label>模型 model
+            <input id="cfg-model" placeholder="gpt-4o-mini">
+          </label>
+          <label>API Key
+            <input id="cfg-key" type="password" placeholder="sk-...">
+          </label>
+          <label>温度（0-1，越高越有想象力）
+            <input id="cfg-temp" type="number" step="0.1" min="0" max="1">
+          </label>
+          <label>单次最大输出字数
+            <input id="cfg-maxtokens" type="number" min="500">
+          </label>
+          <label>章节目标字数
+            <input id="cfg-targetwords" type="number" min="500">
+          </label>
+        </div>
+        <label class="field-label">默认文风（生成章节时使用）</label>
+        <textarea id="cfg-style" rows="3" placeholder="节奏明快、画面感强、对话生动"></textarea>
+        <div id="cfg-result" class="status"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
